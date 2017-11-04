@@ -47,7 +47,7 @@
   "dependencies": {
     "classnames": "^2.2.5",
     "cledit": "^1.2.0",
-    "googlediff": "^0.1.0",
+    "prismjs": "^1.8.3",
     "react": "^16.0.0",
     "react-dom": "^16.0.0",
     "react-redux": "^5.0.6",
