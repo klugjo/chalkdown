@@ -1,0 +1,214 @@
+:global(.scroller) {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    overflow: auto;
+}
+
+:global(.content) {
+    color: rgba(0, 0, 0, 0.73);
+    font-size: 18px;
+    width: 800px;
+    margin: 0 auto;
+    padding: 50px 100px 200px;
+    font-family: Helvetica, sans-serif;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    word-break: normal;
+}
+
+* {
+    line-height: 1.5;
+}
+
+pre:focus {
+    outline: none;
+}
+
+:global(.code) {
+    font-family: Courier, monospace;
+    font-size: 1em;
+}
+
+:global(.pre) {
+    color: #555;
+    font-family: Courier, monospace;
+    font-size: 1em;
+    word-break: break-all;
+}
+
+:global(.pre) [class*="language-"] {
+    color: #2f2f2f;
+}
+
+:global(.pre) * {
+    font-size: inherit !important;
+}
+
+:global(.tag) {
+    color: #555;
+    font-weight: bold;
+    font-family: Courier, monospace;
+    font-size: 1em;
+}
+
+:global(.tag) :global(.punctuation),
+:global(.tag) :global(.attr-value),
+:global(.tag) :global(.attr-name) {
+    font-weight: normal;
+}
+
+:global(.latex),
+:global(.math) {
+    color: #555;
+}
+
+:global(.entity) {
+    font-style: italic;
+    font-family: Courier, monospace;
+    font-size: 1em;
+    color: #555;
+}
+
+:global(.table) {
+    font-family: Courier, monospace;
+    font-size: 1em;
+}
+
+:global(.table) * {
+    font-size: inherit;
+}
+
+:global(.comment) {
+    color: rgba(85, 85, 85, 0.4);
+}
+
+:global(.keyword) {
+    color: #2f2f2f;
+    font-weight: bold;
+}
+
+:global(.code),
+:global(.img),
+:global(.imgref),
+:global(.cl-toc) {
+    background-color: #eee;
+    border-radius: 4px;
+    padding: 0.15em 0;
+}
+
+:global(.cl-toc) {
+    font-size: 2.8em;
+    padding: 0.15em;
+}
+
+:global(.blockquote) {
+    font-weight: 300;
+}
+
+:global(.h1),
+:global(.h2),
+:global(.h3),
+:global(.h4),
+:global(.h5),
+:global(.h6) {
+    font-weight: 600;
+}
+
+:global(.h1),
+:global(.h11) {
+    font-size: 2em;
+}
+
+:global(.h2),
+:global(.h22) {
+    font-size: 1.5em;
+}
+
+:global(.h3) {
+    font-size: 1.17em;
+}
+
+:global(.h4) {
+    font-size: 1em;
+}
+
+:global(.h5) {
+    font-size: 0.83em;
+}
+
+:global(.h6) {
+    font-size: 0.75em;
+}
+
+:global(.cl-hash) {
+    color: rgba(85, 85, 85, 0.4);
+}
+
+:global(.cl),
+:global(.hr) {
+    color: rgba(85, 85, 85, 0.4);
+    font-style: normal;
+    font-weight: normal
+}
+
+:global(.em),
+:global(.em) :global(.cl) {
+    font-style: italic;
+}
+
+:global(.strong),
+:global(.strong) :global(.cl),
+:global(.term) {
+    font-weight: bold;
+}
+
+:global(.cl-del-text) {
+    text-decoration: line-through
+}
+
+:global(.url),
+:global(.email),
+:global(.cl-underlined-text) {
+    text-decoration: underline;
+}
+
+:global(.linkdef) :global(.url) {
+    color: rgba(85, 85, 85, 0.4);
+}
+
+:global(.fn),
+:global(.inlinefn),
+:global(.sup) {
+    position: relative;
+    top: -0.5em;
+    font-size: smaller;
+}
+
+:global(.sub) {
+    position: relative;
+    bottom: -0.25em;
+    font-size: smaller;
+}
+
+:global(.img) {
+    display: inline-block;
+}
+
+:global(.img),
+:global(.imgref),
+:global(.link),
+:global(.linkref) {
+    color: rgba(85, 85, 85, 0.4);
+}
+
+:global(.img) :global(.cl-underlined-text),
+:global(.link) :global(.cl-underlined-text) {
+    color: #2f2f2f;
+}
+
+:global(.cl-title) {
+    color: #555;
+}
