@@ -1,12 +1,17 @@
+import DiffMatchPatch from './diffMatchPatch';
+
+import {defaultKeystrokes} from './keys';
 import {createEventHooks, debounce} from './utils';
 import Highlighter from './Highlighter';
+import SelectionManager from './SelectionManager';
+import Watcher from './Watcher';
 
 export default({rootElement, contentElement} : IEditorParameters) => {
     const editor : IEditor = {
         _contentElt: rootElement,
         _scrollElt: contentElement,
         _window: window,
-        _keystrokes: [],
+        keystrokes: [],
         _markers: {}
     };
 
@@ -16,15 +21,15 @@ export default({rootElement, contentElement} : IEditorParameters) => {
 
     editor.toggleEditable = function (isEditable : boolean) {
         if (isEditable === undefined) {
-            isEditable = !rootElement.contentEditable;
+            isEditable = !editor._contentElt.contentEditable;
         }
-        rootElement.contentEditable = isEditable.toString();
+        editor._contentElt.contentEditable = isEditable.toString();
     }
 
     editor.toggleEditable(true);
 
-    function getTextContent() {
-        let textContent = contentElement
+    const getTextContent = () => {
+        let textContent = editor._contentElt
             .textContent
             .replace(/\r[\n\u0085]?|[\u2424\u2028\u0085]/g, '\n'); // Markdown-it sanitization (Mac/DOS to Unix)
         if (textContent.slice(-1) !== '\n') {
@@ -35,60 +40,107 @@ export default({rootElement, contentElement} : IEditorParameters) => {
 
     let lastTextContent = getTextContent();
 
-    var highlighter = new Highlighter(editor);
+    const highlighter = new Highlighter(editor);
 
     let sectionList;
 
-    function parseSections(content, isInit) {
-        sectionList = highlighter.parseSections(content, isInit)
+    const parseSections = (content, isInit?) => {
+        sectionList = highlighter.parseSections(content, isInit);
         editor._allElements = Array.prototype.slice
             .call(editor._contentElt.querySelectorAll('.cledit-section *'));
         return sectionList;
     }
 
-    // Used to detect editor changes
-    var watcher = new cledit.Watcher(editor, checkContentChange);
-    watcher.startWatching()
+    const checkContentChange = (mutations) => {
+        watcher.noWatch(function () {
+            const removedSections = [];
+            const modifiedSections = [];
 
-    /* eslint-disable new-cap */
-    var diffMatchPatch = new window.diff_match_patch();
-    /* eslint-enable new-cap */
-    var selectionMgr = new cledit.SelectionMgr(editor);
+            const markModifiedSection = (node) => {
+                while (node && node !== editor._contentElt) {
+                    if (node.section) {
+                        var array = node.parentNode
+                            ? modifiedSections
+                            : removedSections;
+                        return array.indexOf(node.section) === -1 && array.push(node.section);
+                    }
+                    node = node.parentNode;
+                }
+            }
 
-    function adjustCursorPosition(force) {
-        selectionMgr.saveSelectionState(true, true, force)
+            mutations.forEach((mutation) => {
+                markModifiedSection(mutation.target);
+                mutation.addedNodes.forEach(markModifiedSection);
+                mutation.removedNodes.forEach(markModifiedSection);
+            });
+            highlighter.fixContent(modifiedSections, removedSections, noContentFix);
+            noContentFix = false;
+        });
+
+        var newTextContent = getTextContent();
+        var diffs = diffMatchPatch.diff_main(lastTextContent, newTextContent);
+        Object.keys(editor._markers).forEach((k: string) => {
+            editor._markers[k].adjustOffset(diffs);
+        });
+
+        selectionMgr.saveSelectionState();
+        var sectionList = parseSections(newTextContent);
+        editor.trigger('contentChanged', newTextContent, diffs, sectionList);
+
+        // if (!ignoreUndo) {
+        //     undoMgr.addDiffs(lastTextContent, newTextContent, diffs)
+        //     undoMgr.setDefaultMode('typing')
+        //     undoMgr.saveState()
+        // }
+        ignoreUndo = false;
+        lastTextContent = newTextContent;
+        triggerSpellCheck();
     }
 
-    function replaceContent(selectionStart, selectionEnd, replacement) {
-        var min = Math.min(selectionStart, selectionEnd)
-        var max = Math.max(selectionStart, selectionEnd)
-        var range = selectionMgr.createRange(min, max)
-        var rangeText = '' + range
+    // Used to detect editor changes
+    const watcher = new Watcher(editor, checkContentChange);
+    watcher.startWatching();
+
+    const diffMatchPatch = new DiffMatchPatch();
+
+    const selectionMgr = new SelectionManager(editor);
+
+    const adjustCursorPosition = (force?) => {
+        selectionMgr.saveSelectionState(true, true, force);
+    }
+
+    const replaceContent = (selectionStart, selectionEnd, replacement) => {
+        var min = Math.min(selectionStart, selectionEnd);
+        var max = Math.max(selectionStart, selectionEnd);
+        var range = selectionMgr.createRange(min, max);
+        var rangeText = '' + range;
         // Range can contain a br element, which is not taken into account in rangeText
         if (rangeText.length === max - min && rangeText === replacement) {
-            return
+            return;
         }
-        range.deleteContents()
-        range.insertNode(editor.$document.createTextNode(replacement))
-        return range
+        range.deleteContents();
+        range.insertNode(document.createTextNode(replacement));
+        return range;
     }
 
-    var ignoreUndo = false
-    var noContentFix = false
+    let ignoreUndo = false;
+    let noContentFix = false;
 
-    function setContent(value, noUndo, maxStartOffset) {
-        var textContent = getTextContent()
+    const setContent = (value, noUndo, maxStartOffset) => {
+        const textContent = getTextContent();
         maxStartOffset = maxStartOffset !== undefined && maxStartOffset < textContent.length
             ? maxStartOffset
-            : textContent.length - 1
-        var startOffset = Math.min(diffMatchPatch.diff_commonPrefix(textContent, value), maxStartOffset)
-        var endOffset = Math.min(diffMatchPatch.diff_commonSuffix(textContent, value), textContent.length - startOffset, value.length - startOffset)
-        var replacement = value.substring(startOffset, value.length - endOffset)
-        var range = replaceContent(startOffset, textContent.length - endOffset, replacement)
+            : textContent.length - 1;
+        const startOffset = Math.min(diffMatchPatch.diff_commonPrefix(textContent, value), maxStartOffset);
+        const endOffset = Math.min(diffMatchPatch.diff_commonSuffix(textContent, value), textContent.length - startOffset, value.length - startOffset);
+        const replacement = value.substring(startOffset, value.length - endOffset);
+        const range = replaceContent(startOffset, textContent.length - endOffset, replacement);
+
         if (range) {
-            ignoreUndo = noUndo
-            noContentFix = true
+            ignoreUndo = noUndo;
+            noContentFix = true;
         }
+
         return {
             start: startOffset,
             end: value.length - endOffset,
@@ -96,311 +148,244 @@ export default({rootElement, contentElement} : IEditorParameters) => {
         }
     }
 
-    function replace(selectionStart, selectionEnd, replacement) {
-        undoMgr.setDefaultMode('single')
-        replaceContent(selectionStart, selectionEnd, replacement)
-        var endOffset = selectionStart + replacement.length
-        selectionMgr.setSelectionStartEnd(endOffset, endOffset)
-        selectionMgr.updateCursorCoordinates(true)
+    const replace = (selectionStart, selectionEnd, replacement) => {
+        // undoMgr.setDefaultMode('single');
+        replaceContent(selectionStart, selectionEnd, replacement);
+
+        const endOffset = selectionStart + replacement.length;
+
+        selectionMgr.setSelectionStartEnd(endOffset, endOffset);
+        selectionMgr.updateCursorCoordinates(true);
     }
 
-    function replaceAll(search, replacement) {
-        undoMgr.setDefaultMode('single')
-        var textContent = getTextContent()
-        var value = textContent.replace(search, replacement)
+    const replaceAll = (search, replacement) => {
+        // undoMgr.setDefaultMode('single');
+        const textContent = getTextContent();
+        const value = textContent.replace(search, replacement);
+
         if (value !== textContent) {
-            var offset = editor.setContent(value)
-            selectionMgr.setSelectionStartEnd(offset.end, offset.end)
-            selectionMgr.updateCursorCoordinates(true)
+            const offset = editor.setContent(value);
+            selectionMgr.setSelectionStartEnd(offset.end, offset.end);
+            selectionMgr.updateCursorCoordinates(true);
         }
     }
 
-    function focus() {
-        selectionMgr.restoreSelection()
+    const focus = () => {
+        selectionMgr.restoreSelection();
     }
 
-    var undoMgr = new cledit.UndoMgr(editor)
+    // const undoMgr = new UndoMgr(editor);
 
-    function addMarker(marker) {
-        editor.$markers[marker.id] = marker
+    const addMarker = (marker) => {
+        editor._markers[marker.id] = marker;
     }
 
-    function removeMarker(marker) {
-        delete editor.$markers[marker.id]
+    const removeMarker = (marker) => {
+        delete editor._markers[marker.id];
     }
 
-    var triggerSpellCheck = debounce(function () {
-        var selection = editor
-            .$window
-            .getSelection()
-        if (!selectionMgr.hasFocus || highlighter.isComposing || selectionMgr.selectionStart !== selectionMgr.selectionEnd || !selection.modify) {
-            return
+    const triggerSpellCheck = debounce(() => {
+        const selection = window.getSelection();
+        if (!selectionMgr.hasFocus ||
+            highlighter.isComposing ||
+            selectionMgr.selectionStart !== selectionMgr.selectionEnd ||
+            !(selection as any).modify) {
+            return;
         }
         // Hack for Chrome to trigger the spell checker
         if (selectionMgr.selectionStart) {
-            selection.modify('move', 'backward', 'character')
-            selection.modify('move', 'forward', 'character')
+            (selection as any).modify('move', 'backward', 'character');
+            (selection as any).modify('move', 'forward', 'character');
         } else {
-            selection.modify('move', 'forward', 'character')
-            selection.modify('move', 'backward', 'character')
+            (selection as any).modify('move', 'forward', 'character');
+            (selection as any).modify('move', 'backward', 'character');
         }
-    }, 10)
+    }, 10);
 
-    function checkContentChange(mutations) {
-        watcher
-            .noWatch(function () {
-                var removedSections = []
-                var modifiedSections = []
-
-                function markModifiedSection(node) {
-                    while (node && node !== contentElt) {
-                        if (node.section) {
-                            var array = node.parentNode
-                                ? modifiedSections
-                                : removedSections
-                            return array.indexOf(node.section) === -1 && array.push(node.section)
-                        }
-                        node = node.parentNode
-                    }
-                }
-
-                mutations
-                    .cl_each(function (mutation) {
-                        markModifiedSection(mutation.target)
-                        mutation
-                            .addedNodes
-                            .cl_each(markModifiedSection)
-                        mutation
-                            .removedNodes
-                            .cl_each(markModifiedSection)
-                    })
-                highlighter.fixContent(modifiedSections, removedSections, noContentFix)
-                noContentFix = false
-            })
-
-        var newTextContent = getTextContent()
-        var diffs = diffMatchPatch.diff_main(lastTextContent, newTextContent)
-        editor
-            .$markers
-            .cl_each(function (marker) {
-                marker.adjustOffset(diffs)
-            })
-
-        selectionMgr.saveSelectionState()
-        var sectionList = parseSections(newTextContent)
-        editor.$trigger('contentChanged', newTextContent, diffs, sectionList)
-        if (!ignoreUndo) {
-            undoMgr.addDiffs(lastTextContent, newTextContent, diffs)
-            undoMgr.setDefaultMode('typing')
-            undoMgr.saveState()
-        }
-        ignoreUndo = false
-        lastTextContent = newTextContent
-        triggerSpellCheck()
-    }
-
-    function setSelection(start, end) {
+    const setSelection = (start, end) => {
         end = end === undefined
             ? start
             : end
-        selectionMgr.setSelectionStartEnd(start, end)
-        selectionMgr.updateCursorCoordinates()
+        selectionMgr.setSelectionStartEnd(start, end);
+        selectionMgr.updateCursorCoordinates();
     }
 
-    function keydownHandler(handler) {
-        return function (evt) {
+    const keydownHandler = (handler) => {
+        return (evt) => {
             if (evt.which !== 17 && // Ctrl
-            evt.which !== 91 && // Cmd
-            evt.which !== 18 && // Alt
-            evt.which !== 16 // Shift
+                evt.which !== 91 && // Cmd
+                evt.which !== 18 && // Alt
+                evt.which !== 16 // Shift
             ) {
-                handler(evt)
+                handler(evt);
             }
-        }
+        };
     }
 
-    function tryDestroy() {
-        if (!editor.$window.document.contains(contentElt)) {
-            watcher.stopWatching()
-            editor
-                .$window
-                .removeEventListener('keydown', windowKeydownListener)
-            editor
-                .$window
-                .removeEventListener('mouseup', windowMouseupListener)
-            editor.$trigger('destroy')
-            return true
+    const tryDestroy = () => {
+        if (!window.document.contains(editor._contentElt)) {
+            watcher.stopWatching();
+            window.removeEventListener('keydown', windowKeydownListener);
+            window.removeEventListener('mouseup', windowMouseupListener);
+            editor.trigger('destroy');
+            return true;
         }
     }
 
     // In case of Ctrl/Cmd+A outside the editor element
-    function windowKeydownListener(evt) {
+    const windowKeydownListener = (evt) => {
         if (!tryDestroy()) {
-            keydownHandler(function () {
-                adjustCursorPosition()
-            })(evt)
+            keydownHandler(adjustCursorPosition)(evt);
         }
     }
-    editor
-        .$window
-        .addEventListener('keydown', windowKeydownListener, false)
+
+    window.addEventListener('keydown', windowKeydownListener, false);
 
     // Mouseup can happen outside the editor element
-    function windowMouseupListener() {
+    const windowMouseupListener = () => {
         if (!tryDestroy()) {
-            selectionMgr.saveSelectionState(true, false)
+            selectionMgr.saveSelectionState(true, false);
         }
     }
-    editor
-        .$window
-        .addEventListener('mouseup', windowMouseupListener)
+    window.addEventListener('mouseup', windowMouseupListener);
     // This can also provoke selection changes and does not fire mouseup event on
     // Chrome/OSX
-    contentElt.addEventListener('contextmenu', selectionMgr.saveSelectionState.cl_bind(selectionMgr, true, false))
+    editor._contentElt.addEventListener('contextmenu', selectionMgr.saveSelectionState.bind(selectionMgr, true, false));
 
-    contentElt.addEventListener('keydown', keydownHandler(function (evt) {
-        selectionMgr.saveSelectionState()
-        adjustCursorPosition()
+    editor._contentElt.addEventListener('keydown', keydownHandler((evt) => {
+        selectionMgr.saveSelectionState();
+        adjustCursorPosition();
 
         // Perform keystroke
-        var textContent = getTextContent()
-        var min = Math.min(selectionMgr.selectionStart, selectionMgr.selectionEnd)
-        var max = Math.max(selectionMgr.selectionStart, selectionMgr.selectionEnd)
-        var state = {
+        const textContent = getTextContent();
+        let min = Math.min(selectionMgr.selectionStart, selectionMgr.selectionEnd);
+        let max = Math.max(selectionMgr.selectionStart, selectionMgr.selectionEnd);
+        const state = {
             before: textContent.slice(0, min),
             after: textContent.slice(max),
             selection: textContent.slice(min, max),
             isBackwardSelection: selectionMgr.selectionStart > selectionMgr.selectionEnd
-        }
-        editor
-            .$keystrokes
-            .cl_some(function (keystroke) {
+        };
+        editor.keystrokes.some((keystroke) => {
                 if (keystroke.handler(evt, state, editor)) {
-                    editor.setContent(state.before + state.selection + state.after, false, min)
-                    min = state.before.length
-                    max = min + state.selection.length
-                    selectionMgr.setSelectionStartEnd(state.isBackwardSelection
-                        ? max
-                        : min, state.isBackwardSelection
-                        ? min
-                        : max)
-                    return true
+                    editor.setContent(state.before + state.selection + state.after, false, min);
+                    min = state.before.length;
+                    max = min + state.selection.length;
+                    selectionMgr.setSelectionStartEnd(state.isBackwardSelection ? max : min,
+                        state.isBackwardSelection ? min : max);
+                    return true;
                 }
             })
-    }), false)
+    }), false);
 
-    contentElt.addEventListener('compositionstart', function () {
-        highlighter.isComposing++
-    }, false)
+    editor._contentElt.addEventListener('compositionstart', () => {
+        highlighter.isComposing++;
+    }, false);
 
-    contentElt.addEventListener('compositionend', function () {
-        setTimeout(function () {
-            highlighter.isComposing && highlighter.isComposing--
-        }, 0)
-    }, false)
+    editor._contentElt.addEventListener('compositionend', () => {
+        setTimeout(() => {
+            highlighter.isComposing && highlighter.isComposing--;
+        }, 0);
+    }, false);
 
-    contentElt.addEventListener('paste', function (evt) {
-        undoMgr.setCurrentMode('single')
-        evt.preventDefault()
-        var data
-        var clipboardData = evt.clipboardData
+    editor._contentElt.addEventListener('paste', (evt) => {
+        // undoMgr.setCurrentMode('single')
+        evt.preventDefault();
+        let data;
+        let clipboardData = evt.clipboardData;
         if (clipboardData) {
-            data = clipboardData.getData('text/plain')
+            data = clipboardData.getData('text/plain');
         } else {
-            clipboardData = editor.$window.clipboardData
-            data = clipboardData && clipboardData.getData('Text')
+            clipboardData = (window as any).clipboardData;
+            data = clipboardData && clipboardData.getData('Text');
         }
         if (!data) {
-            return
+            return;
         }
-        replace(selectionMgr.selectionStart, selectionMgr.selectionEnd, data)
-        adjustCursorPosition()
-    }, false)
+        replace(selectionMgr.selectionStart, selectionMgr.selectionEnd, data);
+        adjustCursorPosition();
+    }, false);
 
-    contentElt.addEventListener('cut', function () {
-        undoMgr.setCurrentMode('single')
-        adjustCursorPosition()
-    }, false)
+    editor._contentElt.addEventListener('cut', () => {
+        // undoMgr.setCurrentMode('single');
+        adjustCursorPosition();
+    }, false);
 
-    contentElt.addEventListener('focus', function () {
-        selectionMgr.hasFocus = true
-        editor.$trigger('focus')
-    }, false)
+    editor._contentElt.addEventListener('focus', () => {
+        selectionMgr.hasFocus = true;
+        editor.trigger('focus');
+    }, false);
 
-    contentElt.addEventListener('blur', function () {
-        selectionMgr.hasFocus = false
-        editor.$trigger('blur')
-    }, false)
+    editor._contentElt.addEventListener('blur', () => {
+        selectionMgr.hasFocus = false;
+        editor.trigger('blur');
+    }, false);
 
-    function addKeystroke(keystrokes) {
+    const addKeystroke = (keystrokes) => {
         if (!Array.isArray(keystrokes)) {
-            keystrokes = [keystrokes]
+            keystrokes = [keystrokes];
         }
-        editor.$keystrokes = editor
-            .$keystrokes
-            .concat(keystrokes)
+        editor.keystrokes = editor.keystrokes.concat(keystrokes)
             .sort(function (keystroke1, keystroke2) {
-                return keystroke1.priority - keystroke2.priority
-            })
+                return keystroke1.priority - keystroke2.priority;
+            });
     }
-    addKeystroke(cledit.defaultKeystrokes)
+    addKeystroke(defaultKeystrokes);
 
-    editor.selectionMgr = selectionMgr
-    editor.undoMgr = undoMgr
-    editor.highlighter = highlighter
-    editor.watcher = watcher
-    editor.adjustCursorPosition = adjustCursorPosition
-    editor.setContent = setContent
-    editor.replace = replace
-    editor.replaceAll = replaceAll
-    editor.getContent = getTextContent
-    editor.focus = focus
-    editor.setSelection = setSelection
-    editor.addKeystroke = addKeystroke
-    editor.addMarker = addMarker
-    editor.removeMarker = removeMarker
+    editor.selectionMgr = selectionMgr;
+    // editor.undoMgr = undoMgr
+    editor.highlighter = highlighter;
+    editor.watcher = watcher;
+    editor.adjustCursorPosition = adjustCursorPosition;
+    editor.setContent = setContent;
+    editor.replace = replace;
+    editor.replaceAll = replaceAll;
+    editor.getContent = getTextContent;
+    editor.focus = focus;
+    editor.setSelection = setSelection;
+    editor.addKeystroke = addKeystroke;
+    editor.addMarker = addMarker;
+    editor.removeMarker = removeMarker;
 
-    editor.init = function (options) {
-        options = ({
+    editor.init = (options: any = {}) => {
+        options = {
             cursorFocusRatio: 0.5,
             sectionHighlighter: function (section) {
                 return section
                     .text
                     .replace(/&/g, '&amp;')
                     .replace(/</g, '&lt;')
-                    .replace(/\u00a0/g, ' ')
+                    .replace(/\u00a0/g, ' ');
             },
-            sectionDelimiter: ''
-        }).cl_extend(options || {})
-        editor.options = options
+            sectionDelimiter: '',
+            ...options
+        };
+        editor.options = options;
 
         if (options.content !== undefined) {
             lastTextContent = options
                 .content
-                .toString()
+                .toString();
             if (lastTextContent.slice(-1) !== '\n') {
-                lastTextContent += '\n'
+                lastTextContent += '\n';
             }
         }
 
-        var sectionList = parseSections(lastTextContent, true)
-        editor.$trigger('contentChanged', lastTextContent, [
+        var sectionList = parseSections(lastTextContent, true);
+        editor.trigger('contentChanged', lastTextContent, [
             0, lastTextContent
-        ], sectionList)
+        ], sectionList);
         if (options.selectionStart !== undefined && options.selectionEnd !== undefined) {
-            editor.setSelection(options.selectionStart, options.selectionEnd)
+            editor.setSelection(options.selectionStart, options.selectionEnd);
         } else {
-            selectionMgr.saveSelectionState()
+            selectionMgr.saveSelectionState();
         }
-        undoMgr.init(options)
+        // undoMgr.init(options)
 
         if (options.scrollTop !== undefined) {
-            scrollElt.scrollTop = options.scrollTop
+            editor._scrollElt.scrollTop = options.scrollTop;
         }
     }
 
-    return editor
+    return editor;
 }
-
-window.cledit = cledit
-};
