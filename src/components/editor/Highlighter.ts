@@ -57,10 +57,10 @@ export default class Highlighter {
             section.forceHighlighting = true;
             if (!noContentFix) {
                 if (useBr) {
-                    section.elt.getElementsByClassName('hd-lf').forEach((lfElt) => {
+                    Array.from(section.elt.getElementsByClassName('hd-lf')).forEach((lfElt: any) => {
                         lfElt.parentNode.removeChild(lfElt);
                     });
-                    section.elt.getElementsByTagName('br').forEach((brElt) => {
+                    Array.from(section.elt.getElementsByTagName('br')).forEach((brElt: any) => {
                         brElt.parentNode.replaceChild(this._editor._document.createTextNode('\n'), brElt);
                     });
                 }
@@ -77,17 +77,20 @@ export default class Highlighter {
         this._editor._contentElt.appendChild(this._trailingNode);
     }
 
-    public parseSections = (content, isInit) => {
+    public parseSections = (content, isInit?) => {
         const contentElt = this._editor._contentElt;
 
         if (this.isComposing) {
             return this._sectionList;
         }
 
-        let newSectionList = this._editor.options.sectionParser ? this._editor.options.sectionParser(content) : [content]
+        let newSectionList = this._editor.options.sectionParser ?
+            this._editor.options.sectionParser(content) :
+            [content];
+
         newSectionList = newSectionList.map((sectionText) => {
             return new Section(sectionText);
-        })
+        });
 
         let modifiedSections = [];
         let sectionsToRemove = [];
@@ -187,7 +190,7 @@ export default class Highlighter {
             (this as any).trigger('highlighted');
             this._editor.selectionMgr.restoreSelection();
             this._editor.selectionMgr.updateCursorCoordinates();
-        }
+        });
 
         return this._sectionList;
     }
